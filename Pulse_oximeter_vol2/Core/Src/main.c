@@ -54,18 +54,28 @@ TIM_HandleTypeDef htim2;
 
 volatile int flag=0;
 volatile int adc_triggered=0;
-volatile uint32_t duty_cycle_CIR=639; //50% dc
+volatile uint32_t duty_cycle_CIR=639; //50% dc 639
 uint32_t max_duty_cycle_CIR=1151; //90% dc
 uint32_t min_duty_cycle_CIR=64; //5% dc
 
 
 
-volatile uint32_t duty_cycle_CR=639; //50% dc
+volatile uint32_t duty_cycle_CR=639; //50% dc 639
 uint32_t max_duty_cycle_CR=1151; //90% dc
 uint32_t min_duty_cycle_CR=64; //5% dc
 
+// ADC and VALUES
 uint32_t adc_val=0;
+volatile uint32_t ir_val=0;
+volatile uint32_t red_val=0;
+volatile int32_t ir_ac_wave=0;
+volatile int32_t red_ac_wave=0;
 
+
+
+// FILTER
+volatile float ir_dc_filter = 2500.0;
+volatile float red_dc_filter = 2500.0;
 
 
 uint16_t low_threshold_adc=2500; //2.014 Vdc
@@ -82,6 +92,7 @@ volatile int state=1;
 //PA1=CR
 //PA2=PIR
 //PA3=PR
+//PA4=GS ADC
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -165,7 +176,7 @@ int main(void)
 		  if(steps<24){
 			  TIM2->CCR1=duty_cycle_CIR;
 			 			  if(steps==12&&adc_triggered==0){
-			 				  //HAL_ADC_Start_DMA(&hadc1, &adc_val, 1);
+			 			 HAL_ADC_Start_DMA(&hadc1, &adc_val, 1);
 			 				  adc_triggered=1;
 			 			  }
 		  }
@@ -200,7 +211,7 @@ int main(void)
 	  		 	 if(steps<24){
 	  		 		TIM2->CCR2=duty_cycle_CR;
 	  		 			  	 if(steps==12 && adc_triggered==0){
-	  		 			  			//	HAL_ADC_Start_DMA(&hadc1, &adc_val, 1);
+	  		 			  		HAL_ADC_Start_DMA(&hadc1, &adc_val, 1);
 	  		 			  		 	adc_triggered=1;
 	  		 			  		 		 }
 	  		 	 }
@@ -326,7 +337,6 @@ static void MX_ADC1_Init(void)
   hadc1.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_4;
   hadc1.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
   hadc1.Init.TriggerFrequencyMode = ADC_TRIGGER_FREQ_HIGH;
-
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
     Error_Handler();
@@ -469,6 +479,16 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 
 	void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc){
 		if(state==1){
+			ir_val=adc_val;
+
+
+			/* FILTER
+			ir_dc_filter = (0.99 * ir_dc_filter) + (0.01 * ir_val);
+		    ir_ac_wave = (ir_val - (int32_t)ir_dc_filter) * 100; //amplify
+
+			*/
+
+
 		if(adc_val<low_threshold_adc && duty_cycle_CIR<max_duty_cycle_CIR){
 			duty_cycle_CIR++;
 		}
@@ -480,6 +500,18 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		}
 
 		if(state==2){
+
+
+			red_val=adc_val;
+
+
+
+			/* FILTER
+			 *
+			 * red_dc_filter = (0.99 * red_dc_filter) + (0.01 * red_val);
+			   red_ac_wave = (red_val - (int32_t)red_dc_filter) * 100; // amplify
+			 */
+
 
 			if(adc_val<low_threshold_adc && duty_cycle_CR<max_duty_cycle_CR){
 						duty_cycle_CR++;
