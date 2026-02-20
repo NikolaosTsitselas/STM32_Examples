@@ -64,7 +64,7 @@ uint32_t last_time=0;
 
 volatile int flag=0;
 
-char data_received[1000]={'\0'}; //read eeprom and transfer it here
+char data_received[0x8000]={'\0'}; //read eeprom and transfer it here
 char data_send[100]={'\0'}; //write eeprom from thiS
 
 
