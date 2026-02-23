@@ -1,0 +1,8 @@
+../Core/Src/DFRobot_LIS2DH12.c:3:8:DFRobot_LIS2DH12_Init	2
+../Core/Src/DFRobot_LIS2DH12.c:22:6:DFRobot_LIS2DH12_ReadXYZ	1
+../Core/Src/DFRobot_LIS2DH12.c:32:6:DFRobot_LIS2DH12_MgScale	1
+../Core/Src/DFRobot_LIS2DH12.c:39:9:DFRobot_LIS2DH12_ReadReg	1
+../Core/Src/DFRobot_LIS2DH12.c:46:6:DFRobot_LIS2DH12_ReadRegs	3
+../Core/Src/DFRobot_LIS2DH12.c:59:9:DFRobot_LIS2DH12_WriteReg	1
+../Core/Src/DFRobot_LIS2DH12.c:65:9:DFRobot_LIS2DH12_WriteRegs	4
+../Core/Src/DFRobot_LIS2DH12.c:79:6:DFRobot_LIS2DH12_SetRange	7
