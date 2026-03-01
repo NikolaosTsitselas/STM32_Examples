@@ -37,7 +37,7 @@ void LOW_PASS_1_ORDER_Init(LOW_FilterTypeDef *f,float alpha_value); //Init low p
 float LOW_PASS_1_ORDER(LOW_FilterTypeDef *f,uint16_t input); //basic function for an EMA 1st order low pass filter
 
 void HIGH_PASS_1_ORDER_Init(HIGH_FilterTypeDef *f,float beta_value); //Init High pass filter 1st order!
-float HIGH_PASS_1_ORDER(LOW_FilterTypeDef *f,uint16_t input); //basic function for an EMA 1st order high pass filter
+float HIGH_PASS_1_ORDER(HIGH_FilterTypeDef *f,uint16_t input); //basic function for an EMA 1st order high pass filter
 
 
 

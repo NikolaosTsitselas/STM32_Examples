@@ -24,7 +24,7 @@ float LOW_PASS_1_ORDER(LOW_FilterTypeDef *f,uint16_t input){
 void HIGH_PASS_1_ORDER_Init(HIGH_FilterTypeDef *f,float beta_value){
     f->y1=0.0f;
     f->previous_input=0.0f;
-    f->beta=beta_value
+    f->beta=beta_value;
 }
 
 float HIGH_PASS_1_ORDER(HIGH_FilterTypeDef *f,uint16_t input){
