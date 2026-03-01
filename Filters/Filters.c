@@ -104,7 +104,7 @@ float HIGH_PASS_4_ORDER(HIGH_FilterTypeDef* f,uint16_t input){
 
 
 //might be obsolete.
-float LOW_PASS_IR_AC(float alpha,float,beta,uint16_t input){
+float LOW_PASS_IR_AC(float alpha,float beta,uint16_t input){
     static float y1=0.0;
     static float y2=0.0;
     static float y3=0.0;
