@@ -104,7 +104,7 @@ float HIGH_PASS_4_ORDER(HIGH_FilterTypeDef* f,uint16_t input){
 
 
 //might be obsolete.
-float LOW_PASS_IR_AC(float alpha,uint16_t input){
+float LOW_PASS_IR_AC(float alpha,float,beta,uint16_t input){
     static float y1=0.0;
     static float y2=0.0;
     static float y3=0.0;
@@ -126,10 +126,10 @@ y4=alpha*y3 + (1.0f-alpha)*y4;
 y5=input-y4;
 y6=y5*y5; //eisodos gia to deutero xamiloperato filtro
 
-y7=alpha*y6 + (1.0f-alpha)*y7;
-y8=alpha*y7 + (1.0f-alpha)*y8;
-y9=alpha*y8 + (1.0f-alpha)*y9;
-y10=alpha*y9 + (1.0f-alpha)*y10;
+y7=beta*y6 + (1.0f-beta)*y7;
+y8=beta*y7 + (1.0f-beta)*y8;
+y9=beta*y8 + (1.0f-beta)*y9;
+y10=beta*y9 + (1.0f-beta)*y10;
 
 final_signal_ir=sqrt(y10);
 
@@ -139,7 +139,7 @@ return final_signal_ir;
 
 //might be obsolete
 
-float LOW_PASS_R_AC(float alpha,uint16_t input){
+float LOW_PASS_R_AC(float alpha,float beta,uint16_t input){
     static float y1=0.0;
     static float y2=0.0;
     static float y3=0.0;
@@ -161,10 +161,10 @@ y4=alpha*y3 + (1.0f-alpha)*y4;
 y5=input-y4;
 y6=y5*y5; //eisodos gia to deutero xamiloperato filtro
 
-y7=alpha*y6 + (1.0f-alpha)*y7;
-y8=alpha*y7 + (1.0f-alpha)*y8;
-y9=alpha*y8 + (1.0f-alpha)*y9;
-y10=alpha*y9 + (1.0f-alpha)*y10;
+y7=beta*y6 + (1.0f-beta)*y7;
+y8=beta*y7 + (1.0f-beta)*y8;
+y9=beta*y8 + (1.0f-beta)*y9;
+y10=beta*y9 + (1.0f-beta)*y10;
 
 final_signal_r=sqrt(y10);
 

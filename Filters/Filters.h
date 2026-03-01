@@ -51,5 +51,5 @@ float HIGH_PASS_4_ORDER(HIGH_FilterTypeDef *f,uint16_t input); //basic function 
 
 
 
-float LOW_PASS_IR_AC(float alpha,uint16_t input); //might be obsolete
-float LOW_PASS_R_AC(float alpha,uint16_t input); //might be obsolete
+float LOW_PASS_IR_AC(float alpha,float beta,uint16_t input); //might be obsolete
+float LOW_PASS_R_AC(float alpha,float beta,uint16_t input); //might be obsolete
