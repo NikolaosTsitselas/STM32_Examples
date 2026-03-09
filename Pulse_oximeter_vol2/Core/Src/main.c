@@ -21,7 +21,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "stdio.h"
+#include "math.h"
+#include "Filters.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,52 +49,110 @@ TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
 
+LOW_FilterTypeDef Filter_IR; // an xreiastei
+
+LOW_FilterTypeDef Filter_R; // an xreiastei
+
 
 
 //uint32_t duty_cycle_PIR=1279; //25% dc
 //uint32_t pwm_PIR=0;
 
-volatile int flag=0;
-volatile int adc_triggered=0;
-volatile uint32_t duty_cycle_CIR=639; //50% dc 639
+//flags
+volatile uint8_t adc_triggered_1=0;
+volatile uint8_t adc_triggered_2=0;
+volatile uint8_t data_1_ready=0;
+volatile uint8_t data_2_ready=0;
+volatile uint8_t active_adc=0;
+volatile uint8_t phase_shift_flag=0;
+
+
+
+
+
+
+
+
+
+
+
+volatile uint32_t duty_cycle_CIR=384; //50% dc 639
 uint32_t max_duty_cycle_CIR=1151; //90% dc
 uint32_t min_duty_cycle_CIR=64; //5% dc
 
+uint16_t duty_cycle_envelope=25; // 1:1 means 35=>35%
 
-
-volatile uint32_t duty_cycle_CR=639; //50% dc 639
+volatile uint32_t duty_cycle_CR=384; //50% dc 639
 uint32_t max_duty_cycle_CR=1151; //90% dc
 uint32_t min_duty_cycle_CR=64; //5% dc
 
 // ADC and VALUES
-uint32_t adc_val=0;
-volatile uint32_t ir_val=0;
-volatile uint32_t red_val=0;
-volatile int32_t ir_ac_wave=0;
-volatile int32_t red_ac_wave=0;
+uint16_t adc_val[4];
+
+volatile uint16_t ir_val=0;
+volatile uint16_t red_val=0;
+
+volatile uint16_t ir_ac_val=0;
+volatile uint16_t r_ac_val=0;
+
+uint8_t trigger_step=13;
+
+//Filter
+volatile float ir_ac_filtered=0.0; //output of 5hz LPF
+volatile float r_ac_filtered=0.0; // output of 5hz LPF
+
+
+volatile float ir_ac_final=0.0; // final filtered
+volatile float r_ac_final=0.0; // final filtered
 
 
 
-// FILTER
-volatile float ir_dc_filter = 2500.0;
-volatile float red_dc_filter = 2500.0;
+
+
+
+//temp
+volatile float voltage_r=0.0;
+volatile float voltage_ir=0.0;
 
 
 uint16_t low_threshold_adc=2500; //2.014 Vdc
-uint16_t high_threshold_adc=2550; //2.054 Vdc
+uint16_t high_threshold_adc=2600; //2.054 Vdc
 
 
 //uint32_t duty_cycle_PR=25; //25% dc
 //uint32_t pwm_PR=0;
 
-volatile uint16_t steps=0;
-volatile int state=1;
+
+//For timer interrupt 100 steps=2ms period
+volatile uint8_t steps_1=0;
+volatile uint8_t steps_2=0;
+
+volatile uint8_t current_steps_1=0;
+volatile uint8_t current_steps_2=0;
+
+
+//frequency r_ac_filtered
+uint16_t x1,x2,x3=0;
+uint16_t ton,toff=0;
+uint16_t state=0;
+float period=0.0;
+float frequency=0.0;
+
+
 
 //PA0=CIR
 //PA1=CR
 //PA2=PIR
 //PA3=PR
-//PA4=GS ADC
+//PA4=Red DC signal ADC
+//PA5=IR DC signal ADC
+//PA6=Red AC Signal ADC
+//PA7=IR AC Signal ADC
+//PB11=Red signal for CD4066B
+//PB12=IR signal for CD4066B
+
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -102,6 +162,112 @@ static void MX_DMA_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
+
+//functions for "heavy" cpu usage to place inside while
+
+void r_ac_frequency(){
+	if(r_ac_filtered<1900 && state==0){ //detect first falling edge
+		x1=HAL_GetTick();
+		state=1;
+	}
+
+	if(r_ac_filtered>2000 && state==1){ //detect first rising edge
+		x2=HAL_GetTick();
+		ton=x2-x1;
+		state=2;
+	}
+
+	if(r_ac_filtered<1900 && state==2){// detect second falling edge
+		x3=HAL_GetTick();
+		toff=x3-x2;
+		period=(ton+toff)/1000.0f;
+		frequency=1.0f/period;
+		x1=x3;
+		state=1;
+	}
+}
+
+
+
+
+
+
+
+
+
+
+//Ready data for CIR
+void CIR_data_ready(){
+    if(data_1_ready==1){
+        data_1_ready=0;
+        ir_val=adc_val[1];
+        ir_ac_val=adc_val[3];
+        //adc_val[2] and [0] will be garbage
+
+        //Increase Duty Cycle of CIR
+		if(ir_val<low_threshold_adc && duty_cycle_CIR<max_duty_cycle_CIR){
+			duty_cycle_CIR++;
+		}
+
+        //Decrease Duty Cycle of CIR
+		if(ir_val>high_threshold_adc && duty_cycle_CIR>min_duty_cycle_CIR){
+			duty_cycle_CIR--;
+		}
+
+
+
+
+        //filter for IR_AC
+        ir_ac_filtered=LOW_PASS_4_ORDER(&Filter_IR,(uint16_t) ir_ac_val); // 5HZ LPF
+		ir_ac_final=LOW_PASS_IR_AC(0.003768,0.003768,(uint16_t) ir_ac_filtered); // 0.003768 => 0.3 HZ LPF
+
+
+
+
+
+
+
+
+    }
+}
+
+//Ready data for CR
+void CR_data_ready(){
+    if(data_2_ready==1){
+        data_2_ready=0;
+        red_val=adc_val[0];
+        r_ac_val=adc_val[2];
+        //adc_val[1] and [3] will be garbage
+
+            //Increase CR Duty cycle
+        	if(red_val<low_threshold_adc && duty_cycle_CR<max_duty_cycle_CR){
+						duty_cycle_CR++;
+					}
+
+
+                    //Decrease CR Duty cycle
+					if(red_val>high_threshold_adc && duty_cycle_CR>min_duty_cycle_CR){
+						duty_cycle_CR--;
+					}
+
+
+
+        //Filters for R_AC
+
+        r_ac_filtered=LOW_PASS_4_ORDER(&Filter_R,(uint16_t) r_ac_val); // 5HZ LPF
+        r_ac_final=LOW_PASS_R_AC(0.003768,0.003768,(uint16_t) r_ac_filtered); // 0.003768 => 0.3 HZ LPF
+
+        //frequency
+        r_ac_frequency();
+
+    }
+}
+
+
+
+
+
+
 
 /* USER CODE END PFP */
 
@@ -149,6 +315,10 @@ int main(void)
   HAL_ADCEx_Calibration_Start(&hadc1);
 
 
+  //FILTER INIT
+  LOW_PASS_4_ORDER_Init(&Filter_IR,0.0628f); // 5 Hz LPF
+  LOW_PASS_4_ORDER_Init(&Filter_R,0.0628f);  // 5 Hz LPF
+
 
   /* USER CODE END 2 */
 
@@ -158,94 +328,127 @@ int main(void)
   {
 
 
-	 // if(flag==1){
-		//  flag=0;
-		//  steps++;
-	  	 switch(state) {
+	  //for while loop
 
 
-	  	 case 1:
+	  current_steps_1=steps_1;
+	  current_steps_2=steps_2;
 
-		  if(steps<=24){ //PIR
-			  HAL_GPIO_WritePin(GPIOA,GPIO_PIN_2,GPIO_PIN_SET);
-			  //TIM2->CNT=992;
+	  //trigger_step to trigger once the adc
 
-		  }
+	  //PIR
 
+	  if(current_steps_1<=duty_cycle_envelope){ // PIR starts
+	      HAL_GPIO_WritePin(GPIOA,GPIO_PIN_2,1);
 
-		  if(steps<24){
-			  TIM2->CCR1=duty_cycle_CIR;
-			 			  if(steps==12&&adc_triggered==0){
-			 			 HAL_ADC_Start_DMA(&hadc1, &adc_val, 1);
-			 				  adc_triggered=1;
-			 			  }
-		  }
+	      //start PWM for CIR
+	      if(current_steps_1<duty_cycle_envelope){
+	          TIM2->CCR1=duty_cycle_CIR;
+	      }
 
-		  if(steps>=24){
-			  TIM2->CCR1=0;
-		  }
-		  if(steps>24){
-
-			  HAL_GPIO_WritePin(GPIOA,GPIO_PIN_2,GPIO_PIN_RESET);
-
-
-		  }
-
-		  if(steps>=50) {
-		  	  		  //50 * 20us = 1000us
-			  	  	  adc_triggered=0;
-		  	  		 steps=0;
-		  	  		state=2;
-		  	  	 }
-
-		  break;
-
-	  	 case 2:
-
-	  		 	 if(steps<=24){ //PR
-	  		 		 HAL_GPIO_WritePin(GPIOA,GPIO_PIN_3,GPIO_PIN_SET);
-	  		 		// TIM2->CNT=992;
-
-	  		 	 }
-
-	  		 	 if(steps<24){
-	  		 		TIM2->CCR2=duty_cycle_CR;
-	  		 			  	 if(steps==12 && adc_triggered==0){
-	  		 			  		HAL_ADC_Start_DMA(&hadc1, &adc_val, 1);
-	  		 			  		 	adc_triggered=1;
-	  		 			  		 		 }
-	  		 	 }
-
-	  		 	 if(steps>=24){
-	  		 		 TIM2->CCR2=0;
-	  		 	 }
-
-	  		 	 if(steps>24){
-
-	  		 		 HAL_GPIO_WritePin(GPIOA,GPIO_PIN_3,GPIO_PIN_RESET);
+	      //Trigger the ADC and choose when to trigger
+	      //remove trigger_step if you want to trigger in the whole pulse
+	          if(current_steps_1==trigger_step && adc_triggered_1==0){
+	             // HAL_ADC_Start_DMA(&hadc1,(uint32_t*)adc_val,4);
+	              adc_triggered_1=1;
+	              active_adc=1;
+	          }
 
 
-	  		 	 }
+	  //PIR Pulse for CD4066
+	  if(current_steps_1>=5 && current_steps_1<=25){
+	      HAL_GPIO_WritePin(GPIOB,GPIO_PIN_12,1);
+	  }
+	  //PIR Pulse stops for CD4066
+	  if(current_steps_1>25){
+	      HAL_GPIO_WritePin(GPIOB,GPIO_PIN_12,0);
 
-	  		 	 if(steps>=50){
-	  		 		 adc_triggered=0;
-	  		 		 steps=0;
-	  		 		 state=1;
-	  		 	 }
-	  		 	 break;
+	  }
+
+	  }
+
+	  //Stop the PIR Pulse
+	  else {
+	      HAL_GPIO_WritePin(GPIOA,GPIO_PIN_2,0);
+	  }
+
+	  // Stop CIR PWM 1 step before the PIR pulse ends
+	  if(current_steps_1>=duty_cycle_envelope){
+	      TIM2->CCR1=0;
+	  }
+
+	  //if steps_1 go above 100, reset
+	  if(current_steps_1==99){
+	      adc_triggered_1=0;
+	  }
 
 
 
-	  	 }
+	  //PR
+
+	      if(phase_shift_flag==1){ // if 50 steps passed
+	                               // they are now in sync
+
+	          if(current_steps_2<=duty_cycle_envelope){ // Start PR
+	              HAL_GPIO_WritePin(GPIOA,GPIO_PIN_3,1);
+
+	              //Start PWM CR
+	              if(current_steps_2<duty_cycle_envelope){
+	                  TIM2->CCR2=duty_cycle_CR;
+	              }
+
+	              //Start PR Pulse for CD4066
+	              if(current_steps_2>=5 && current_steps_2<=25){
+	                  HAL_GPIO_WritePin(GPIOB,GPIO_PIN_11,1);
+	              }
+	              //Stop PR Pulse for CD4066
+	              else {
+	                  HAL_GPIO_WritePin(GPIOB,GPIO_PIN_11,0);
+	              }
+
+	               //Trigger the ADC and choose when to trigger
+	               //remove trigger_step if you want to trigger in the whole pulse
+	              if(current_steps_2 == trigger_step && adc_triggered_2==0){
+	                  HAL_ADC_Start_DMA(&hadc1,(uint32_t*)adc_val,4);
+	                  adc_triggered_2=1;
+	                  active_adc=2;
+	              }
+
+	          }
+
+	          //Stop PR Pulse
+	          else {
+	              HAL_GPIO_WritePin(GPIOA,GPIO_PIN_3,0);
+	          }
+	          //Stop PWM CR Pulse 1 step before PR
+	          if(current_steps_2>=duty_cycle_envelope){
+	              TIM2->CCR2=0;
+	          }
+
+	          if(current_steps_2==99){
+	              adc_triggered_2=0;
+
+	          }
 
 
-	//  }
+	      }
+
+	      //insert the 2 functions
+	     // CIR_data_ready();
+	      CR_data_ready();
+
+
+	      //end while loop
+
+
+
+	  }// while end
 
 
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+
   /* USER CODE END 3 */
 }
 
@@ -319,18 +522,18 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
   hadc1.Init.LowPowerAutoPowerOff = DISABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
-  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.NbrOfConversion = 4;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_12CYCLES_5;
+  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_160CYCLES_5;
   hadc1.Init.SamplingTimeCommon2 = ADC_SAMPLETIME_1CYCLE_5;
   hadc1.Init.OversamplingMode = ENABLE;
   hadc1.Init.Oversampling.Ratio = ADC_OVERSAMPLING_RATIO_16;
@@ -347,6 +550,33 @@ static void MX_ADC1_Init(void)
   sConfig.Channel = ADC_CHANNEL_4;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_5;
+  sConfig.Rank = ADC_REGULAR_RANK_2;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_6;
+  sConfig.Rank = ADC_REGULAR_RANK_3;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_7;
+  sConfig.Rank = ADC_REGULAR_RANK_4;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -452,9 +682,13 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, PIR_Pin|PR_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, RED_Pin|IR_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PIR_Pin PR_Pin */
   GPIO_InitStruct.Pin = PIR_Pin|PR_Pin;
@@ -462,6 +696,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : RED_Pin IR_Pin */
+  GPIO_InitStruct.Pin = RED_Pin|IR_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -472,56 +713,34 @@ static void MX_GPIO_Init(void)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if(htim->Instance==TIM2){
 
-		steps++;
-		//flag=1;
+		steps_1++;
+
+		if(steps_1==50){
+		    phase_shift_flag=1;
+		}
+
+		if(phase_shift_flag==1){
+		    steps_2++;
+		}
+
+		if(steps_1>=100) steps_1=0;
+		if(steps_2>=100) steps_2=0;
+
 	}
 }
 
 	void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc){
-		if(state==1){
-			ir_val=adc_val;
 
+		if(active_adc==1){
+		        data_1_ready=1;
+		    }
 
-			/* FILTER
-			ir_dc_filter = (0.99 * ir_dc_filter) + (0.01 * ir_val);
-		    ir_ac_wave = (ir_val - (int32_t)ir_dc_filter) * 100; //amplify
-
-			*/
-
-
-		if(adc_val<low_threshold_adc && duty_cycle_CIR<max_duty_cycle_CIR){
-			duty_cycle_CIR++;
-		}
-
-		if(adc_val>high_threshold_adc && duty_cycle_CIR>min_duty_cycle_CIR){
-			duty_cycle_CIR--;
-		}
-
-		}
-
-		if(state==2){
-
-
-			red_val=adc_val;
+		    if(active_adc==2){
+		        data_2_ready=1;
+		    }
 
 
 
-			/* FILTER
-			 *
-			 * red_dc_filter = (0.99 * red_dc_filter) + (0.01 * red_val);
-			   red_ac_wave = (red_val - (int32_t)red_dc_filter) * 100; // amplify
-			 */
-
-
-			if(adc_val<low_threshold_adc && duty_cycle_CR<max_duty_cycle_CR){
-						duty_cycle_CR++;
-					}
-
-					if(adc_val>high_threshold_adc && duty_cycle_CR>min_duty_cycle_CR){
-						duty_cycle_CR--;
-					}
-
-		}
 	}
 
 
