@@ -61,7 +61,7 @@ main-build: Pulse_oximeter_vol2.elf secondary-outputs
 
 # Tool invocations
 Pulse_oximeter_vol2.elf Pulse_oximeter_vol2.map: $(OBJS) $(USER_OBJS) C:\Users\mpamp\STM32CubeIDE\workspace_1.19.0\Pulse_oximeter_vol2\STM32G071RBTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Pulse_oximeter_vol2.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m0plus -T"C:\Users\mpamp\STM32CubeIDE\workspace_1.19.0\Pulse_oximeter_vol2\STM32G071RBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Pulse_oximeter_vol2.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+	arm-none-eabi-gcc -o "Pulse_oximeter_vol2.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m0plus -T"C:\Users\mpamp\STM32CubeIDE\workspace_1.19.0\Pulse_oximeter_vol2\STM32G071RBTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Pulse_oximeter_vol2.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

@@ -24,6 +24,7 @@
 #include "stdio.h"
 #include "math.h"
 #include "Filters.h"
+#include "stdio.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,11 +48,15 @@ DMA_HandleTypeDef hdma_adc1;
 
 TIM_HandleTypeDef htim2;
 
+UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart2_tx;
+
 /* USER CODE BEGIN PV */
 
 LOW_FilterTypeDef Filter_IR; // an xreiastei
 
 LOW_FilterTypeDef Filter_R; // an xreiastei
+//LOW_FilterTypeDef Filter_R_ADC;
 
 
 
@@ -83,8 +88,9 @@ uint32_t min_duty_cycle_CIR=64; //5% dc
 uint16_t duty_cycle_envelope=25; // 1:1 means 35=>35%
 
 volatile uint32_t duty_cycle_CR=384; //50% dc 639
-uint32_t max_duty_cycle_CR=1151; //90% dc
+uint32_t max_duty_cycle_CR=1151; //90% dc 1151
 uint32_t min_duty_cycle_CR=64; //5% dc
+volatile float duty_cycle_CR_per=0;
 
 // ADC and VALUES
 uint16_t adc_val[4];
@@ -106,7 +112,7 @@ volatile float ir_ac_final=0.0; // final filtered
 volatile float r_ac_final=0.0; // final filtered
 
 
-
+volatile float r_dc_filtered=0.0;
 
 
 
@@ -130,13 +136,27 @@ volatile uint8_t steps_2=0;
 volatile uint8_t current_steps_1=0;
 volatile uint8_t current_steps_2=0;
 
-
+//for testing purposes
+//==========================
 //frequency r_ac_filtered
 uint16_t x1,x2,x3=0;
 uint16_t ton,toff=0;
 uint16_t state=0;
 float period=0.0;
 float frequency=0.0;
+//==========================
+
+
+
+
+
+
+//for SPO2 measurement
+
+float SPO2=0.0;
+uint8_t ready_flag=0;
+char data[20]={'\0'};
+
 
 
 
@@ -161,6 +181,7 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 //functions for "heavy" cpu usage to place inside while
@@ -239,15 +260,19 @@ void CR_data_ready(){
         r_ac_val=adc_val[2];
         //adc_val[1] and [3] will be garbage
 
+
+      //  r_dc_filtered=LOW_PASS_4_ORDER(&Filter_R_ADC,(uint16_t) red_val);
+
+
             //Increase CR Duty cycle
         	if(red_val<low_threshold_adc && duty_cycle_CR<max_duty_cycle_CR){
-						duty_cycle_CR++;
+						duty_cycle_CR=duty_cycle_CR+1;
 					}
 
 
                     //Decrease CR Duty cycle
 					if(red_val>high_threshold_adc && duty_cycle_CR>min_duty_cycle_CR){
-						duty_cycle_CR--;
+						duty_cycle_CR=duty_cycle_CR-1;
 					}
 
 
@@ -256,9 +281,11 @@ void CR_data_ready(){
 
         r_ac_filtered=LOW_PASS_4_ORDER(&Filter_R,(uint16_t) r_ac_val); // 5HZ LPF
         r_ac_final=LOW_PASS_R_AC(0.003768,0.003768,(uint16_t) r_ac_filtered); // 0.003768 => 0.3 HZ LPF
-
+        duty_cycle_CR_per=(duty_cycle_CR*100)/1280.0f;
         //frequency
-        r_ac_frequency();
+      //  r_ac_frequency();
+
+        ready_flag=0; // ready to measure the SPO2
 
     }
 }
@@ -308,6 +335,7 @@ int main(void)
   MX_DMA_Init();
   MX_TIM2_Init();
   MX_ADC1_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_1);
@@ -318,7 +346,7 @@ int main(void)
   //FILTER INIT
   LOW_PASS_4_ORDER_Init(&Filter_IR,0.0628f); // 5 Hz LPF
   LOW_PASS_4_ORDER_Init(&Filter_R,0.0628f);  // 5 Hz LPF
-
+  //LOW_PASS_4_ORDER_Init(&Filter_R_ADC,0.2512f); //0.2 Hz LPF
 
   /* USER CODE END 2 */
 
@@ -356,12 +384,12 @@ int main(void)
 
 
 	  //PIR Pulse for CD4066
-	  if(current_steps_1>=5 && current_steps_1<=25){
-	      HAL_GPIO_WritePin(GPIOB,GPIO_PIN_12,1);
+	  if(current_steps_1>=5 && current_steps_1<=15){
+	      HAL_GPIO_WritePin(GPIOB,GPIO_PIN_12,GPIO_PIN_SET);
 	  }
 	  //PIR Pulse stops for CD4066
-	  if(current_steps_1>25){
-	      HAL_GPIO_WritePin(GPIOB,GPIO_PIN_12,0);
+	  else{
+	      HAL_GPIO_WritePin(GPIOB,GPIO_PIN_12,GPIO_PIN_RESET);
 
 	  }
 
@@ -398,12 +426,12 @@ int main(void)
 	              }
 
 	              //Start PR Pulse for CD4066
-	              if(current_steps_2>=5 && current_steps_2<=25){
-	                  HAL_GPIO_WritePin(GPIOB,GPIO_PIN_11,1);
+	              if(current_steps_2>=5 && current_steps_2<=15){
+	                  HAL_GPIO_WritePin(GPIOB,GPIO_PIN_11,GPIO_PIN_SET);
 	              }
 	              //Stop PR Pulse for CD4066
 	              else {
-	                  HAL_GPIO_WritePin(GPIOB,GPIO_PIN_11,0);
+	                  HAL_GPIO_WritePin(GPIOB,GPIO_PIN_11,GPIO_PIN_RESET);
 	              }
 
 	               //Trigger the ADC and choose when to trigger
@@ -438,6 +466,15 @@ int main(void)
 	      CR_data_ready();
 
 
+	      //to see how much percent of SpO2 in serial monitor
+	      /*
+	      if(ready_flag==1){
+	    	  ready_flag=0;
+	    	  SPO2= ((r_ac_final/red_val)/(ir_ac_final/ir_val));
+	    	  sprintf(data,"SpO2=%.2lf",SPO2);
+	    	  HAL_UART_Transmit_DMA(&huart2,(uint8_t*) data,sizeof(data));
+	      }
+	      */
 	      //end while loop
 
 
@@ -651,6 +688,54 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -663,6 +748,9 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+  /* DMA1_Channel2_3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel2_3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
 
 }
 
@@ -683,6 +771,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, PIR_Pin|PR_Pin, GPIO_PIN_RESET);
